@@ -50,14 +50,25 @@ public class SQLiteHelper extends SQLiteOpenHelper {
         contentValues.put(WORDS_SYN_COLUMN, synonym);
         contentValues.put(WORDS_REL_COLUMN, relevant_synonyms);
         contentValues.put(WORDS_REF_COLUMN, reference_site);
-        db.insert(WORDS_TABLE_NAME, null, contentValues);
+        if(!exists(word)) {
+            db.insert(WORDS_TABLE_NAME, null, contentValues);
+        }
         return true;
     }
 
     public Cursor getData(int id){
         SQLiteDatabase db = this.getReadableDatabase();
-        Cursor res =  db.rawQuery( "select * from " + DATABASE_NAME + " where id="+id+"", null );
+        Cursor res =  db.rawQuery( "select * from " + WORDS_TABLE_NAME + " where id="+id+"", null );
         return res;
+    }
+
+    public Boolean exists(String word) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        Cursor res =  db.rawQuery("select 1 from " + WORDS_TABLE_NAME + " where " + WORDS_COLUMN_NAME + " = '" + word + "'", null);
+        Boolean exists = (res.getCount() > 0);
+
+        res.close();
+        return exists;
     }
 
     public int numberOfRows(){
@@ -96,7 +107,9 @@ public class SQLiteHelper extends SQLiteOpenHelper {
         res.moveToFirst();
 
         while(res.isAfterLast() == false){
-            array_list.add(res.getString(res.getColumnIndex(WORDS_COLUMN_NAME)));
+            String temp = res.getString(res.getColumnIndex(WORDS_COLUMN_NAME));
+            temp += " | " + res.getString(res.getColumnIndex(WORDS_SYN_COLUMN));
+            array_list.add(temp);
             res.moveToNext();
         }
         return array_list;

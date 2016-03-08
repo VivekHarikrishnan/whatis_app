@@ -1,6 +1,9 @@
 package com.example.research.whatis;
 
+import android.app.AlertDialog;
+import android.app.ProgressDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -61,6 +64,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
+import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
@@ -75,6 +79,8 @@ public class MainActivity extends AppCompatActivity {
     String OCRedText = "";
     String synonym = "";
     private SQLiteHelper dbHelper;
+    HttpURLConnection connection = null;
+    int httpCode = 0;
 
     protected static final String PHOTO_TAKEN = "photo_taken";
 
@@ -85,8 +91,8 @@ public class MainActivity extends AppCompatActivity {
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
-        StrictMode.setThreadPolicy(policy);
+        //StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+        //StrictMode.setThreadPolicy(policy);
 
         dbHelper = new SQLiteHelper(this);
 
@@ -128,7 +134,7 @@ public class MainActivity extends AppCompatActivity {
 
             ArrayList<String> storedWords = dbHelper.getAllWords();
             Log.e("SQLite", storedWords.toString());
-            ArrayAdapter arrayAdapter = new ArrayAdapter(this, R.layout.content_main, storedWords);
+            ArrayAdapter arrayAdapter = new ArrayAdapter(this, R.layout.activity_listview, R.id.wordsLabel, storedWords);
 
             lView.setAdapter(arrayAdapter);
         }
@@ -176,22 +182,13 @@ public class MainActivity extends AppCompatActivity {
 
                     try {
                         invokeOCRAPI();
-                        invokeSynonymsAPI();
-
-                        TextView view = (TextView) findViewById(R.id.textView);
-                        view.setVisibility(View.VISIBLE);
-                        ListView lView = (ListView) findViewById(R.id.listView);
-                        lView.setVisibility(View.GONE);
-
-                        view.setText(OCRedText + ":" + synonym);
-                        dbHelper.insertWord(OCRedText, synonym, "", "http://words.bighugelabs.com");
                     } catch (IOException e) {
                         e.printStackTrace();
                     } catch (JSONException e) {
                         e.printStackTrace();
                     }
 
-                    Toast.makeText(this, "Response: " + OCRedText, Toast.LENGTH_LONG).show();
+//                    Toast.makeText(this, "Response: " + OCRedText, Toast.LENGTH_LONG).show();
                     Log.d("API", "Response: " + OCRedText);
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -203,7 +200,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void StoreImage(Context mContext, Bitmap bm) {
-        Toast.makeText(this, "Storing image....", Toast.LENGTH_LONG).show();
+//        Toast.makeText(this, "Storing image....", Toast.LENGTH_LONG).show();
         Log.d("API", "Stroging image " + OCRedText);
         System.out.println("Storing image...: " + OCRedText);
 
@@ -230,146 +227,252 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public String invokeOCRAPI() throws IOException, JSONException {
-        String license_code = "31CB2366-603F-4F19-BEFB-1C961348DBA0";
-        String user_name = "VIVEKHARIKRISHNANR";
-        String ocrURL = "http://www.ocrwebservice.com/restservices/processDocument?gettext=true";
+//        String license_code = "31CB2366-603F-4F19-BEFB-1C961348DBA0";
+//        String user_name = "VIVEKHARIKRISHNANR";
+//        String ocrURL = "http://www.ocrwebservice.com/restservices/processDocument?gettext=true";
 
-        //MediaStore.Files.getContentUri(Uri.fromFile(sdImageMainDirectory).toString());
-        byte bytes[] = FileUtils.readFileToByteArray(sdImageMainDirectory);
+//        Toast.makeText(this, "Invoking OCR", Toast.LENGTH_LONG).show();
+        Log.d("API", "Inokving OCR: ");
 
-        Toast.makeText(this, "Invoking OCR", Toast.LENGTH_LONG).show();
-        Log.d("API", "Inokving OCR: " + ocrURL);
+        final ProgressDialog dialog = ProgressDialog.show(MainActivity.this, "Loading ...", "Converting to text.", true, false);
+        final Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String apiKey="nh9tSJg3Mf";
+                String langCode="en";
+                final OCRServiceAPI apiClient = new OCRServiceAPI(apiKey);
+                apiClient.convertToText(langCode, sdImageMainDirectory.getPath());
 
-        URL url = new URL(ocrURL);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setDoOutput(true);
-        connection.setDoInput(true);
-        connection.setRequestMethod("POST");
-        connection.setRequestProperty("Authorization", "Basic " + Base64.encodeToString((user_name + ":" + license_code).getBytes(), Base64.DEFAULT));
-        connection.setRequestProperty("Content-Type", "application/json");
-        connection.setRequestProperty("Content-Length", Integer.toString(bytes.length));
+                // Doing UI related code in UI thread
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        dialog.dismiss();
 
-        Toast.makeText(this, "OCR Connection" + connection.toString(), Toast.LENGTH_LONG).show();
-        Log.d("API", "OCR Connection: " + connection.toString());
+                        // Showing response dialog
+//                        final AlertDialog.Builder alert = new AlertDialog.Builder(MainActivity.this);
+//                        alert.setMessage(apiClient.getResponseText());
+                        OCRedText = apiClient.getResponseText();
+                        OCRedText = OCRedText.replaceAll("\\W", "");
+                        Log.e("OCRedText", OCRedText);
 
-        OutputStream stream = connection.getOutputStream();
-        stream.write(bytes);
-        stream.close();
+                        try {
+                            invokeSynonymsAPI();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
 
-        int httpCode = connection.getResponseCode();
-        // Success request
-        if (httpCode == HttpURLConnection.HTTP_OK) {
-            Log.d("OCR API", "Success");
-            // Get response stream
-            String jsonResponse = GetResponseToString(connection.getInputStream());
-            JSONObject reader = new JSONObject(jsonResponse);
-            JSONArray text = reader.getJSONArray("OCRText");
-            Log.d("OCR API", text.toString());
-            if (text.length() > 0) {
-                OCRedText = text.get(0).toString();
-            } else {
-                OCRedText = "";
+
+//                        alert.setPositiveButton(
+//                                "OK",
+//                                new DialogInterface.OnClickListener() {
+//                                    public void onClick( DialogInterface dialog, int id) {
+//                                    }
+//                                });
+//
+////                         Setting dialog title related from response code
+//                        if (apiClient.getResponseCode() == 200) {
+//                            alert.setTitle("Success");
+//                        } else {
+//                            alert.setTitle("Faild");
+//                        }
+//
+//                        alert.show();
+                    }
+                });
             }
-
-            File root = new File(Environment
-                    .getExternalStorageDirectory()
-                    + File.separator + "WhatisCache" + File.separator);
-            root.mkdirs();
-            File f = new File(root, "OCRedText.txt");
-
-            FileWriter writer = new FileWriter(f);
-            writer.append(OCRedText);
-            writer.flush();
-            writer.close();
-        } else if (httpCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
-            Log.d("OCR API", "OCR Error Message: Unauthorizied request");
-            System.out.println("OCR Error Message: Unauthorizied request");
-        } else {
-            // Error occurred
-            String jsonResponse = GetResponseToString(connection.getErrorStream());
-
-            JSONObject reader = new JSONObject(jsonResponse);
-            JSONArray text = reader.getJSONArray("ErrorMessage");
-            Log.d("OCR API", "OCR Error");
-            Log.d("OCR API", text.toString());
-
-            OCRedText = text.get(0).toString();
-            // Error message
-            Toast.makeText(MainActivity.this, "Error Message: " + OCRedText, Toast.LENGTH_LONG).show();
-            System.out.println();
-        }
-
-        connection.disconnect();
-        OCRedText = "happy";
+        });
+        thread.start();
+        //
+        //MediaStore.Files.getContentUri(Uri.fromFile(sdImageMainDirectory).toString());
+//        byte bytes[] = FileUtils.readFileToByteArray(sdImageMainDirectory);
+//
+//
+//        URL url = new URL(ocrURL);
+//        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+//        connection.setDoOutput(true);
+//        connection.setDoInput(true);
+//        connection.setRequestMethod("POST");
+//        connection.setRequestProperty("Authorization", "Basic " + Base64.encodeToString((user_name + ":" + license_code).getBytes(), Base64.DEFAULT));
+//        connection.setRequestProperty("Content-Type", "application/json");
+//        connection.setRequestProperty("Content-Length", Integer.toString(bytes.length));
+//
+//        Toast.makeText(this, "OCR Connection" + connection.toString(), Toast.LENGTH_LONG).show();
+//        Log.d("API", "OCR Connection: " + connection.toString());
+//
+//        OutputStream stream = connection.getOutputStream();
+//        stream.write(bytes);
+//        stream.close();
+//
+//        int httpCode = connection.getResponseCode();
+//        // Success request
+//        if (httpCode == HttpURLConnection.HTTP_OK) {
+//            Log.d("OCR API", "Success");
+//            // Get response stream
+//            String jsonResponse = GetResponseToString(connection.getInputStream());
+//            JSONObject reader = new JSONObject(jsonResponse);
+//            JSONArray text = reader.getJSONArray("OCRText");
+//            Log.d("OCR API", text.toString());
+//            if (text.length() > 0) {
+//                OCRedText = text.get(0).toString();
+//            } else {
+//                OCRedText = "";
+//            }
+//
+//            File root = new File(Environment
+//                    .getExternalStorageDirectory()
+//                    + File.separator + "WhatisCache" + File.separator);
+//            root.mkdirs();
+//            File f = new File(root, "OCRedText.txt");
+//
+//            FileWriter writer = new FileWriter(f);
+//            writer.append(OCRedText);
+//            writer.flush();
+//            writer.close();
+//        } else if (httpCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
+//            Log.d("OCR API", "OCR Error Message: Unauthorizied request");
+//            System.out.println("OCR Error Message: Unauthorizied request");
+//        } else {
+//            // Error occurred
+//            String jsonResponse = GetResponseToString(connection.getErrorStream());
+//
+//            JSONObject reader = new JSONObject(jsonResponse);
+//            JSONArray text = reader.getJSONArray("ErrorMessage");
+//            Log.d("OCR API", "OCR Error");
+//            Log.d("OCR API", text.toString());
+//
+//            OCRedText = text.get(0).toString();
+//            // Error message
+//            Toast.makeText(MainActivity.this, "Error Message: " + OCRedText, Toast.LENGTH_LONG).show();
+//            System.out.println();
+//        }
+//
+//        connection.disconnect();
+        //OCRedText = "happy";
         return OCRedText;
     }
 
     public String invokeSynonymsAPI() throws IOException, JSONException {
-        String synonymURL = "http://words.bighugelabs.com/api/2/4bbcc4ae52f1e82bd08e683a72665f7b/";
+        if(OCRedText.length()>0) {
+            final ProgressDialog dialog = ProgressDialog.show(MainActivity.this, "Loading ...", "Fetching synonym for " + OCRedText, true, false);
+            final Thread thread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    String synonymURL = "http://words.bighugelabs.com/api/2/4bbcc4ae52f1e82bd08e683a72665f7b/";
 
-        synonymURL += OCRedText.toString() + "/json";
+                    synonymURL += OCRedText.toString() + "/json";
+                    synonymURL = synonymURL.replaceAll("\\s", "");
 
-        Toast.makeText(this, "Invoking Synonyms", Toast.LENGTH_LONG).show();
-        System.out.println("Invoking Sysnonyms");
-        Log.d("API", "Invokes Synonyms" + synonymURL);
+                    Log.d("API", "Invokes Synonyms" + synonymURL);
 
-        URL url = new URL(synonymURL);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setDoOutput(true);
-        connection.setDoInput(true);
-        connection.setRequestMethod("GET");
+                    URL url = null;
+                    try {
+                        url = new URL(synonymURL);
+                        connection = (HttpURLConnection) url.openConnection();
+                        connection.setDoOutput(true);
+                        connection.setDoInput(true);
+                        connection.setRequestMethod("GET");
 
-        connection.setRequestProperty("Content-Type", "application/json");
-        //connection.setRequestProperty("Content-Length", Integer.toString(OCRedText.length()));
+                        connection.setRequestProperty("Content-Type", "application/json");
+                        //connection.setRequestProperty("Content-Length", Integer.toString(OCRedText.length()));
 
-        OutputStream stream = connection.getOutputStream();
-        stream.close();
+                        OutputStream stream = connection.getOutputStream();
+                        stream.close();
 
-        //fabulous/json
+                        //fabulous/json
 
-        int httpCode = connection.getResponseCode();
+                        httpCode = connection.getResponseCode();
 
-        // Success request
-        if (httpCode == HttpURLConnection.HTTP_OK) {
-            // Get response stream
-            String jsonResponse = GetResponseToString(connection.getInputStream());
-            JSONObject reader = new JSONObject(jsonResponse);
-            Log.d("Synonyms JSONResp ", jsonResponse.toString());
-            Log.d("Synonyms Reader", reader.toString());
 
-            JSONArray text = null;
-            try {
-                JSONObject obj = reader.getJSONObject("adjective");
-                text = obj.getJSONArray("syn");
-            } catch (JSONException e) {
-                e.printStackTrace();
-                JSONObject obj = reader.getJSONObject("noun");
-                text = obj.getJSONArray("syn");
-            }
+                    } catch (MalformedURLException e) {
+                        e.printStackTrace();
+                    } catch (ProtocolException e) {
+                        e.printStackTrace();
+                    } catch (FileNotFoundException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
 
-            if (text != null) {
-                synonym = text.get(0).toString();
-            } else {
-                synonym = "<ERROR IN API>";
-            }
+                    // Doing UI related code in UI thread
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            dialog.dismiss();
+                            // Success request
+                            try {
+                                if (httpCode == HttpURLConnection.HTTP_OK) {
+                                    // Get response stream
+                                    String jsonResponse = GetResponseToString(connection.getInputStream());
+                                    JSONObject reader = new JSONObject(jsonResponse);
+                                    Log.d("Synonyms JSONResp ", jsonResponse.toString());
+                                    Log.d("Synonyms Reader", reader.toString());
 
-            FileOutputStream fos = openFileOutput("synonym.txt", Context.MODE_APPEND);
-            fos.write(synonym.getBytes());
-            fos.close();
-        } else {
-            // Error occurred
-            String jsonResponse = GetResponseToString(connection.getErrorStream());
+                                    JSONArray text = null;
+                                    try {
+                                        JSONObject obj = reader.getJSONObject("adjective");
+                                        text = obj.getJSONArray("syn");
+                                    } catch (JSONException e) {
+                                        e.printStackTrace();
 
-            JSONObject reader = new JSONObject(jsonResponse);
-            JSONArray text = reader.getJSONArray("ErrorMessage");
+                                        try {
+                                            JSONObject obj = reader.getJSONObject("noun");
+                                            text = obj.getJSONArray("syn");
+                                        } catch(JSONException e1) {
+                                            JSONObject obj = reader.getJSONObject("verb");
+                                            text = obj.getJSONArray("syn");
+                                        }
+                                    }
 
-            synonym = text.get(0).toString();
-            // Error message
-            Toast.makeText(MainActivity.this, "Error Message: " + synonym, Toast.LENGTH_LONG).show();
-            System.out.println();
+                                    if (text != null) {
+                                        synonym = text.get(0).toString();
+                                    } else {
+                                        synonym = "<ERROR IN API>";
+                                    }
+
+                                    FileOutputStream fos = openFileOutput("synonym.txt", Context.MODE_APPEND);
+                                    fos.write(synonym.getBytes());
+                                    fos.close();
+                                } else {
+                                    // Error occurred
+                                    String jsonResponse = GetResponseToString(connection.getErrorStream());
+
+                                    JSONObject reader = new JSONObject(jsonResponse);
+                                    JSONArray text = reader.getJSONArray("ErrorMessage");
+
+                                    synonym = text.get(0).toString();
+                                    // Error message
+//                                    Toast.makeText(MainActivity.this, "Error Message: " + synonym, Toast.LENGTH_LONG).show();
+                                    System.out.println();
+                                }
+
+                                connection.disconnect();
+
+                                TextView view = (TextView) findViewById(R.id.textView);
+                                view.setVisibility(View.VISIBLE);
+                                ListView lView = (ListView) findViewById(R.id.listView);
+                                lView.setVisibility(View.GONE);
+
+                                view.setText(OCRedText + ":" + synonym);
+                                dbHelper.insertWord(OCRedText, synonym, "", "http://words.bighugelabs.com");
+                            } catch (FileNotFoundException e) {
+                                e.printStackTrace();
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    });
+                }
+            });
+            thread.start();
         }
-
-        connection.disconnect();
+        else {
+            synonym= "";
+        }
 
         return synonym;
     }
